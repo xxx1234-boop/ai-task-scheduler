@@ -29,6 +29,7 @@ class SubtaskInput(BaseModel):
 
     name: str
     estimated_hours: Optional[Decimal] = None
+    allocated_hours: Optional[Decimal] = None  # Manual override for time allocation
     genre_id: Optional[int] = None
     priority: Optional[str] = "中"
     deadline: Optional[datetime] = None

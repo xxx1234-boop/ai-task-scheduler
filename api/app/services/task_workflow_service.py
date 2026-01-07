@@ -12,6 +12,7 @@ from app.schemas.workflow_responses import (
     TaskMergeResponse,
     BulkCreateResponse,
     TaskSummary,
+    AllocationSummary,
 )
 from app.services.task_dependency_service import TaskDependencyService
 
@@ -33,8 +34,9 @@ class TaskWorkflowService:
         """タスク分解（1→多）
 
         処理フロー:
-        1. 元タスク検証（存在確認、status != 'archive'）
+        1. 元タスク検証（存在確認、status != 'archive'、子タスクなし）
         2. サブタスク作成（parent_task_id設定、decomposition_level+1）
+        2.5. 時間配分（TimeEntry と Schedule を estimated_hours 比率で配分）
         3. 依存関係の引継ぎ
         4. サブタスク間依存関係構築
         5. 元タスクarchive（archive_original=trueの場合）
@@ -48,15 +50,16 @@ class TaskWorkflowService:
             archive_original: 元タスクをアーカイブするか
 
         Returns:
-            TaskBreakdownResponse (history_id=None固定)
+            TaskBreakdownResponse (allocation_summary含む)
 
         Raises:
             NotFoundException: タスクが存在しない
-            ValidationException: タスクが既にアーカイブ済み
+            ValidationException: タスクが既にアーカイブ済み、または子タスクを持つ
         """
         # 1. 元タスク検証
         original = await self._validate_task_exists(session, task_id)
         await self._validate_task_not_archived(original)
+        await self._validate_task_has_no_children(session, original)
 
         # サブタスクが空でないことを確認
         if not subtasks:
@@ -68,6 +71,15 @@ class TaskWorkflowService:
         await session.flush()  # IDを取得するためにflush
 
         created_ids = [task.id for task in created]
+
+        # 2.5. 時間配分（TimeEntry と Schedule）
+        proportions = self._calculate_allocation_proportions(subtasks)
+        time_entries_count, time_minutes_allocated = await self._allocate_time_entries(
+            session, original.id, created, proportions
+        )
+        schedules_count, schedule_hours_allocated = await self._allocate_schedules(
+            session, original.id, created, proportions
+        )
 
         # 3. 依存関係の引継ぎ
         dependencies_transferred = 0
@@ -128,6 +140,12 @@ class TaskWorkflowService:
                 TaskSummary(id=t.id, name=t.name, status=t.status) for t in created
             ],
             dependencies_transferred=dependencies_transferred,
+            allocation_summary=AllocationSummary(
+                time_entries_allocated=time_entries_count,
+                schedules_allocated=schedules_count,
+                total_time_minutes_allocated=time_minutes_allocated,
+                total_schedule_hours_allocated=schedule_hours_allocated,
+            ),
             history_id=None,  # 後回し
         )
 
@@ -143,12 +161,11 @@ class TaskWorkflowService:
         処理フロー:
         1. マージ元タスク検証（2つ以上、全て存在、同一project_id）
         2. 新規タスク作成（merged_taskの仕様）
-        3. actual_hours合算
-        4. TimeEntry転送
-        5. Schedule転送
-        6. 依存関係統合
-        7. マージ元タスクarchive
-        8. トランザクションコミット
+        3. TimeEntry転送
+        4. Schedule転送
+        5. 依存関係統合
+        6. マージ元タスクarchive
+        7. トランザクションコミット
 
         Args:
             session: Database session
@@ -189,32 +206,28 @@ class TaskWorkflowService:
             status="todo",
         )
 
-        # 3. actual_hours合算
-        total_actual_hours = await self._calculate_total_actual_hours(tasks)
-        new_task.actual_hours = total_actual_hours
-
         session.add(new_task)
         await session.flush()  # IDを取得
 
-        # 4. TimeEntry転送
+        # 3. TimeEntry転送
         time_entries_transferred = await self._transfer_time_entries(
             session, task_ids, new_task.id
         )
 
-        # 5. Schedule転送
+        # 4. Schedule転送
         await self._transfer_schedules(session, task_ids, new_task.id)
 
-        # 6. 依存関係統合
+        # 5. 依存関係統合
         dependencies_count = await self.dep_service.merge_dependencies(
             session, task_ids, new_task.id
         )
 
-        # 7. マージ元タスクarchive
+        # 6. マージ元タスクarchive
         for task in tasks:
             task.status = "archive"
             session.add(task)
 
-        # 8. コミット
+        # 7. コミット
         await session.commit()
 
         # リフレッシュ
@@ -369,6 +382,33 @@ class TaskWorkflowService:
                 f"Task {task.id} is already archived and cannot be modified"
             )
 
+    async def _validate_task_has_no_children(
+        self,
+        session: AsyncSession,
+        task: Task,
+    ) -> None:
+        """Validate that task has no child tasks.
+
+        Args:
+            session: Database session
+            task: Task object
+
+        Raises:
+            ValidationException: If task has children
+        """
+        from sqlmodel import func
+
+        # Count child tasks
+        query = select(func.count(Task.id)).where(Task.parent_task_id == task.id)
+        result = await session.execute(query)
+        child_count = result.scalar_one()
+
+        if child_count > 0:
+            raise ValidationException(
+                f"Task {task.id} has {child_count} child task(s) and cannot be broken down. "
+                f"Only leaf tasks (tasks without children) can be broken down."
+            )
+
     async def _validate_same_project(self, tasks: List[Task]) -> None:
         """全タスクが同一プロジェクトに属することを確認
 
@@ -429,6 +469,71 @@ class TaskWorkflowService:
 
         return created
 
+    def _calculate_allocation_proportions(
+        self,
+        subtasks: List[SubtaskInput],
+    ) -> List[Decimal]:
+        """Calculate allocation proportions for each subtask.
+
+        Logic:
+        1. If subtask has allocated_hours, use that directly (manual override)
+        2. Else if subtask has estimated_hours, calculate proportion from total
+        3. Else (no estimates), assign equal proportion
+
+        Returns:
+            List of Decimal proportions (0.0 to 1.0) for each subtask
+
+        Raises:
+            ValidationException: If negative values provided
+        """
+        # Validate: no negative values
+        for i, subtask in enumerate(subtasks):
+            if subtask.allocated_hours and subtask.allocated_hours < 0:
+                raise ValidationException(f"Subtask {i} has negative allocated_hours")
+            if subtask.estimated_hours and subtask.estimated_hours < 0:
+                raise ValidationException(f"Subtask {i} has negative estimated_hours")
+
+        # Collect manual vs auto allocations
+        manual_indices = []
+        auto_indices = []
+
+        for i, subtask in enumerate(subtasks):
+            if subtask.allocated_hours is not None:
+                manual_indices.append(i)
+            else:
+                auto_indices.append(i)
+
+        # Calculate total for normalization
+        total = Decimal(0)
+        raw_values = [Decimal(0)] * len(subtasks)
+
+        # Add manual allocations
+        for i in manual_indices:
+            raw_values[i] = subtasks[i].allocated_hours
+            total += subtasks[i].allocated_hours
+
+        # Add auto allocations from estimated_hours
+        if auto_indices:
+            auto_total = sum(subtasks[i].estimated_hours or Decimal(0) for i in auto_indices)
+
+            if auto_total > 0:
+                for i in auto_indices:
+                    raw_values[i] = subtasks[i].estimated_hours or Decimal(0)
+                    total += raw_values[i]
+            else:
+                # Equal distribution for tasks without estimates
+                equal_value = Decimal(1) / len(auto_indices)
+                for i in auto_indices:
+                    raw_values[i] = equal_value
+                    total += equal_value
+
+        # Normalize to proportions (sum = 1.0)
+        if total == 0:
+            # All zeros - equal distribution
+            return [Decimal(1) / len(subtasks)] * len(subtasks)
+
+        return [value / total for value in raw_values]
+
     async def _transfer_time_entries(
         self,
         session: AsyncSession,
@@ -479,16 +584,121 @@ class TaskWorkflowService:
         result = await session.execute(stmt)
         return result.rowcount
 
-    async def _calculate_total_actual_hours(self, tasks: List[Task]) -> Decimal:
-        """複数タスクのactual_hours合計を計算
+    async def _allocate_time_entries(
+        self,
+        session: AsyncSession,
+        parent_task_id: int,
+        created_subtasks: List[Task],
+        proportions: List[Decimal],
+    ) -> tuple[int, int]:
+        """Allocate parent's TimeEntry records to subtasks proportionally.
 
-        Args:
-            tasks: Task objects
+        Since we enforce leaf-node only breakdown, all created subtasks are leaf nodes.
+        TimeEntry records are allocated to all subtasks proportionally.
+
+        Strategy:
+        - Fetch all completed TimeEntry records (end_time IS NOT NULL)
+        - Calculate total duration_minutes
+        - For each subtask, create ONE aggregated TimeEntry with proportional duration
+        - Use parent's earliest start_time and latest end_time as boundaries
 
         Returns:
-            actual_hoursの合計
+            Tuple of (entries_created, total_minutes_allocated)
         """
-        total = Decimal("0")
-        for task in tasks:
-            total += task.actual_hours or Decimal("0")
-        return total
+        # Fetch parent's completed time entries only
+        query = select(TimeEntry).where(
+            TimeEntry.task_id == parent_task_id,
+            TimeEntry.end_time.isnot(None),  # Ignore running timers
+        )
+        result = await session.execute(query)
+        parent_entries = result.scalars().all()
+
+        if not parent_entries:
+            return (0, 0)
+
+        # Calculate total duration
+        total_minutes = sum(entry.duration_minutes or 0 for entry in parent_entries)
+
+        if total_minutes == 0:
+            return (0, 0)
+
+        # Find time boundaries
+        earliest_start = min(entry.start_time for entry in parent_entries)
+        latest_end = max(entry.end_time for entry in parent_entries if entry.end_time)
+
+        # Create proportional entries for each subtask
+        created_count = 0
+        total_allocated = 0
+
+        for subtask, proportion in zip(created_subtasks, proportions):
+            allocated_minutes = int(total_minutes * proportion)
+
+            if allocated_minutes > 0:
+                new_entry = TimeEntry(
+                    task_id=subtask.id,
+                    start_time=earliest_start,
+                    end_time=latest_end,
+                    duration_minutes=allocated_minutes,
+                    note=f"Allocated from parent task breakdown ({proportion * 100:.1f}%)",
+                )
+                session.add(new_entry)
+                created_count += 1
+                total_allocated += allocated_minutes
+
+        await session.flush()
+        return (created_count, total_allocated)
+
+    async def _allocate_schedules(
+        self,
+        session: AsyncSession,
+        parent_task_id: int,
+        created_subtasks: List[Task],
+        proportions: List[Decimal],
+    ) -> tuple[int, Decimal]:
+        """Allocate parent's Schedule records to subtasks proportionally.
+
+        Since we enforce leaf-node only breakdown, all created subtasks are leaf nodes.
+        Schedule records are allocated to all subtasks proportionally.
+
+        Strategy:
+        - For EACH parent schedule, create proportional schedules for ALL subtasks
+        - This maintains temporal distribution across subtasks
+
+        Returns:
+            Tuple of (schedules_created, total_hours_allocated)
+        """
+        # Fetch all parent schedules
+        query = select(Schedule).where(Schedule.task_id == parent_task_id)
+        result = await session.execute(query)
+        parent_schedules = result.scalars().all()
+
+        if not parent_schedules:
+            return (0, Decimal(0))
+
+        created_count = 0
+        total_allocated = Decimal(0)
+
+        # For each parent schedule, create proportional schedules for all subtasks
+        for parent_sched in parent_schedules:
+            for subtask, proportion in zip(created_subtasks, proportions):
+                allocated_hours = parent_sched.allocated_hours * proportion
+
+                # Skip if allocation too small (< 0.01 hours = 36 seconds)
+                if allocated_hours < Decimal("0.01"):
+                    continue
+
+                new_schedule = Schedule(
+                    task_id=subtask.id,
+                    scheduled_date=parent_sched.scheduled_date,
+                    start_time=parent_sched.start_time,
+                    end_time=parent_sched.end_time,
+                    allocated_hours=allocated_hours,
+                    is_generated_by_ai=parent_sched.is_generated_by_ai,
+                    status="scheduled",  # Reset to scheduled (don't inherit completed)
+                )
+                session.add(new_schedule)
+                created_count += 1
+                total_allocated += allocated_hours
+
+        await session.flush()
+        return (created_count, total_allocated)

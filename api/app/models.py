@@ -46,7 +46,6 @@ class Task(SQLModel, table=True):
     status: str = Field(default="todo", max_length=20)
     deadline: Optional[datetime] = None
     estimated_hours: Optional[Decimal] = Field(default=None, max_digits=5, decimal_places=2)
-    actual_hours: Decimal = Field(default=Decimal("0"), max_digits=5, decimal_places=2)
     priority: str = Field(default="中", max_length=10)
     want_level: str = Field(default="中", max_length=10)
     recurrence: str = Field(default="なし", max_length=20)

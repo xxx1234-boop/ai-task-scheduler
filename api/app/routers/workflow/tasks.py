@@ -30,6 +30,10 @@ async def breakdown_task(
     """タスク分解（1→多）
 
     親タスクを複数のサブタスクに分解します。
+    - **制約**: 子タスクを持つタスクは分割できません（葉ノードのみ分割可能）
+    - TimeEntry（作業記録）は estimated_hours の比率で配分されます
+    - Schedule（予定）は estimated_hours の比率で配分されます
+    - allocated_hours を指定すると手動で配分比率を調整できます
     - 依存関係は自動的に引き継がれます
     - サブタスク間の依存関係は depends_on_indices で指定
     - 元タスクは archive_original=true の場合にアーカイブされます
@@ -39,7 +43,7 @@ async def breakdown_task(
         session: Database session
 
     Returns:
-        TaskBreakdownResponse: 分解結果
+        TaskBreakdownResponse: 分解結果（allocation_summary含む）
     """
     return await service.breakdown_task(
         session,
@@ -63,7 +67,6 @@ async def merge_tasks(
 
     複数のタスクを1つに統合します。
     - TimeEntry と Schedule は自動的に転送されます
-    - actual_hours は合算されます
     - 依存関係は統合されます（重複排除）
     - 元タスクはアーカイブされます
 

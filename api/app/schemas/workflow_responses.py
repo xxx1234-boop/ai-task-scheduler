@@ -78,12 +78,22 @@ class TaskSummary(BaseModel):
     status: Optional[str] = None
 
 
+class AllocationSummary(BaseModel):
+    """Summary of time allocation during breakdown."""
+
+    time_entries_allocated: int
+    schedules_allocated: int
+    total_time_minutes_allocated: int
+    total_schedule_hours_allocated: Decimal
+
+
 class TaskBreakdownResponse(BaseModel):
     """Response for task breakdown."""
 
     original_task: TaskSummary
     created_tasks: List[TaskSummary]
     dependencies_transferred: int
+    allocation_summary: AllocationSummary
     history_id: Optional[int] = None
 
 
