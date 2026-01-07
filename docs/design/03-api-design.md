@@ -242,6 +242,8 @@ Authorization: Bearer {token}  # 認証が必要な場合
 }
 ```
 
+**Note:** `decomposition_level`は`parent_task_id`の階層に基づいてデータベーストリガーで自動計算されます。このフィールドはAPIの観点からは読み取り専用であり、POST/PATCHリクエストで手動設定すべきではありません。
+
 #### POST /api/v1/tasks
 
 タスクを作成する。

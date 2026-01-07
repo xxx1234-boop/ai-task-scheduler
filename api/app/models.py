@@ -40,7 +40,7 @@ class Task(SQLModel, table=True):
     __tablename__ = "tasks"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(max_length=300)
+    name: str = Field(min_length=1, max_length=300)
     project_id: Optional[int] = Field(default=None, foreign_key="projects.id")
     genre_id: Optional[int] = Field(default=None, foreign_key="genres.id")
     status: str = Field(default="todo", max_length=20)
@@ -53,6 +53,7 @@ class Task(SQLModel, table=True):
     is_splittable: bool = Field(default=True)
     min_work_unit: Decimal = Field(default=Decimal("0.5"), max_digits=3, decimal_places=1)
     parent_task_id: Optional[int] = Field(default=None, foreign_key="tasks.id")
+    # Auto-computed by database trigger based on parent_task_id hierarchy - do not set manually
     decomposition_level: int = Field(default=0)
     note: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.now)
@@ -121,9 +122,24 @@ class Setting(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.now)
 
 
-# ===== Update Schemas =====
+# ===== Create/Update Schemas =====
+class TaskCreate(SQLModel):
+    """Schema for creating a new task. All required fields must be provided."""
+    name: str = Field(min_length=1, max_length=300)
+    project_id: Optional[int] = None
+    genre_id: Optional[int] = None
+    status: Optional[str] = Field(default="todo", max_length=20)
+    deadline: Optional[datetime] = None
+    estimated_hours: Optional[Decimal] = Field(default=None, max_digits=5, decimal_places=2)
+    priority: Optional[str] = Field(default="中", max_length=10)
+    want_level: Optional[str] = Field(default="中", max_length=10)
+    parent_task_id: Optional[int] = None
+    note: Optional[str] = None
+
+
 class TaskUpdate(SQLModel):
-    name: Optional[str] = None
+    """Schema for updating an existing task. All fields are optional."""
+    name: Optional[str] = Field(default=None, min_length=1, max_length=300)
     project_id: Optional[int] = None
     genre_id: Optional[int] = None
     status: Optional[str] = None

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.database import get_session
-from app.models import Task, TaskUpdate
+from app.models import Task, TaskCreate, TaskUpdate
 from app.services.task_service import TaskService
 from app.schemas.common import PaginatedResponse
 from app.schemas.responses import TaskResponse
@@ -68,10 +68,12 @@ async def get_task_children(
 
 @router.post("", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
 async def create_task(
-    task: Task,
+    task_create: TaskCreate,
     session: AsyncSession = Depends(get_session),
 ):
     """Create a new task."""
+    # Convert TaskCreate to Task model
+    task = Task(**task_create.model_dump(exclude_unset=True))
     return await service.create(session, task)
 
 

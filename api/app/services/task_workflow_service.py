@@ -422,7 +422,7 @@ class TaskWorkflowService:
                 priority=subtask_input.priority,
                 deadline=subtask_input.deadline or parent_task.deadline,
                 parent_task_id=parent_task.id,
-                decomposition_level=parent_task.decomposition_level + 1,
+                # decomposition_level is auto-computed by DB trigger - no need to set manually
                 status="todo",
             )
             created.append(new_task)

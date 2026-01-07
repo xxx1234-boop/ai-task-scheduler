@@ -395,7 +395,7 @@ class TestTaskHierarchy:
         subtask_data = {
             "name": "サブタスク",
             "parent_task_id": parent.id,
-            "decomposition_level": 1,
+            # decomposition_level will be auto-computed by DB trigger
         }
 
         # Act
@@ -405,6 +405,7 @@ class TestTaskHierarchy:
         assert_status_code(response, 201)
         data = response.json()
         assert data["parent_task_id"] == parent.id
+        # Verify trigger computed the level correctly
         assert data["decomposition_level"] == 1
 
     async def test_get_task_children(
@@ -568,3 +569,127 @@ class TestTaskValidation:
 
         # Assert
         assert response.status_code in [422, 500]
+
+
+# =============================================================================
+# Test decomposition_level auto-computation
+# =============================================================================
+
+
+class TestDecompositionLevelComputed:
+    """Test that decomposition_level is automatically computed by DB trigger."""
+
+    async def test_root_task_has_level_zero(
+        self, client: AsyncClient, task_factory
+    ):
+        """Root task (no parent) should have decomposition_level = 0."""
+        # Arrange & Act
+        task = await task_factory(name="Root Task", parent_task_id=None)
+
+        # Assert
+        response = await client.get(f"/api/v1/tasks/{task.id}")
+        assert_status_code(response, 200)
+        data = response.json()
+        assert data["decomposition_level"] == 0
+        assert data["parent_task_id"] is None
+
+    async def test_child_task_has_level_one(
+        self, client: AsyncClient, task_factory
+    ):
+        """Direct child should have decomposition_level = 1."""
+        # Arrange
+        parent = await task_factory(name="Parent")
+        child = await task_factory(name="Child", parent_task_id=parent.id)
+
+        # Act
+        response = await client.get(f"/api/v1/tasks/{child.id}")
+
+        # Assert
+        assert_status_code(response, 200)
+        data = response.json()
+        assert data["decomposition_level"] == 1
+        assert data["parent_task_id"] == parent.id
+
+    async def test_grandchild_task_has_level_two(
+        self, client: AsyncClient, task_factory
+    ):
+        """Grandchild should have decomposition_level = 2."""
+        # Arrange
+        grandparent = await task_factory(name="Grandparent")
+        parent = await task_factory(name="Parent", parent_task_id=grandparent.id)
+        child = await task_factory(name="Child", parent_task_id=parent.id)
+
+        # Act
+        response = await client.get(f"/api/v1/tasks/{child.id}")
+
+        # Assert
+        assert_status_code(response, 200)
+        data = response.json()
+        assert data["decomposition_level"] == 2
+
+    async def test_moving_task_updates_level(
+        self, client: AsyncClient, task_factory
+    ):
+        """Moving task to different parent updates decomposition_level."""
+        # Arrange
+        parent1 = await task_factory(name="Parent 1")
+        parent2 = await task_factory(name="Parent 2")
+        child = await task_factory(name="Child", parent_task_id=parent1.id)
+
+        # Verify initial level
+        response = await client.get(f"/api/v1/tasks/{child.id}")
+        assert response.json()["decomposition_level"] == 1
+
+        # Act: Move to different parent
+        response = await client.patch(
+            f"/api/v1/tasks/{child.id}",
+            json={"parent_task_id": parent2.id}
+        )
+
+        # Assert: Level should still be 1 (both parents are root level)
+        assert_status_code(response, 200)
+        assert response.json()["decomposition_level"] == 1
+
+    async def test_orphaning_task_resets_level(
+        self, client: AsyncClient, task_factory
+    ):
+        """Removing parent (orphaning) resets decomposition_level to 0."""
+        # Arrange
+        parent = await task_factory(name="Parent")
+        child = await task_factory(name="Child", parent_task_id=parent.id)
+
+        # Verify initial level
+        response = await client.get(f"/api/v1/tasks/{child.id}")
+        assert response.json()["decomposition_level"] == 1
+
+        # Act: Orphan the task
+        response = await client.patch(
+            f"/api/v1/tasks/{child.id}",
+            json={"parent_task_id": None}
+        )
+
+        # Assert: Level should reset to 0
+        assert_status_code(response, 200)
+        data = response.json()
+        assert data["decomposition_level"] == 0
+        assert data["parent_task_id"] is None
+
+    async def test_deep_hierarchy(
+        self, client: AsyncClient, task_factory
+    ):
+        """Test deep hierarchy (5 levels)."""
+        # Arrange: Create 5-level hierarchy
+        tasks = []
+        for i in range(5):
+            parent_id = tasks[-1].id if tasks else None
+            task = await task_factory(
+                name=f"Level {i}",
+                parent_task_id=parent_id
+            )
+            tasks.append(task)
+
+        # Act & Assert: Verify each level
+        for i, task in enumerate(tasks):
+            response = await client.get(f"/api/v1/tasks/{task.id}")
+            assert_status_code(response, 200)
+            assert response.json()["decomposition_level"] == i

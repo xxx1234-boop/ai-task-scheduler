@@ -173,7 +173,7 @@
 | is_splittable | BOOLEAN | NO | TRUE | 分割可能フラグ |
 | min_work_unit | DECIMAL(3,1) | NO | 0.5 | 最小作業単位（時間） |
 | parent_task_id | INTEGER | YES | NULL | 親タスクID（FK、自己参照） |
-| decomposition_level | INTEGER | NO | 0 | 分解レベル（0=トップ） |
+| decomposition_level | INTEGER | NO | 0 | 分解レベル（0=トップ）※自動計算（trigger） |
 | note | TEXT | YES | NULL | メモ |
 | created_at | TIMESTAMP | NO | NOW() | 作成日時 |
 | updated_at | TIMESTAMP | NO | NOW() | 更新日時 |
@@ -577,7 +577,61 @@ CREATE TRIGGER trigger_settings_updated_at
     EXECUTE FUNCTION update_updated_at_column();
 ```
 
-### 5.2 time_entries.duration_minutes自動計算
+### 5.2 decomposition_level自動計算
+
+タスクの階層レベルを自動計算するトリガー。`parent_task_id`に基づいて階層深さを自動的に設定します。
+
+```sql
+-- decomposition_level自動計算関数
+CREATE OR REPLACE FUNCTION update_decomposition_level_on_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.parent_task_id IS NULL THEN
+        NEW.decomposition_level := 0;
+    ELSE
+        SELECT COALESCE(decomposition_level, 0) + 1
+        INTO NEW.decomposition_level
+        FROM tasks WHERE id = NEW.parent_task_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_auto_decomposition_level
+    BEFORE INSERT OR UPDATE OF parent_task_id ON tasks
+    FOR EACH ROW
+    EXECUTE FUNCTION update_decomposition_level_on_change();
+
+-- 親変更時に子孫全体を再計算
+CREATE OR REPLACE FUNCTION cascade_decomposition_level()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF (TG_OP = 'UPDATE' AND OLD.parent_task_id IS DISTINCT FROM NEW.parent_task_id) THEN
+        WITH RECURSIVE descendants AS (
+            SELECT id FROM tasks WHERE parent_task_id = NEW.id
+            UNION ALL
+            SELECT t.id FROM tasks t
+            INNER JOIN descendants d ON t.parent_task_id = d.id
+        )
+        UPDATE tasks SET parent_task_id = parent_task_id
+        WHERE id IN (SELECT id FROM descendants);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_cascade_decomposition
+    AFTER UPDATE OF parent_task_id ON tasks
+    FOR EACH ROW
+    EXECUTE FUNCTION cascade_decomposition_level();
+```
+
+**動作:**
+- `parent_task_id = NULL` の場合、`decomposition_level = 0`（ルートタスク）
+- 親が存在する場合、親の`decomposition_level + 1`
+- 親が変更された場合、すべての子孫が自動的に再計算される
+
+### 5.3 time_entries.duration_minutes自動計算
 
 ```sql
 -- duration_minutes自動計算関数

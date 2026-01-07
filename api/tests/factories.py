@@ -79,7 +79,7 @@ class TaskFactory(factory.Factory):
     is_splittable = True
     min_work_unit = Decimal("0.5")
     parent_task_id = None  # Optional self-referential foreign key
-    decomposition_level = 0
+    # decomposition_level is auto-computed by DB trigger - not set in factory
     note = factory.Faker("text", max_nb_chars=200, locale="ja_JP")
     created_at = factory.LazyFunction(datetime.now)
     updated_at = factory.LazyFunction(datetime.now)
@@ -169,11 +169,11 @@ def create_parent_task_with_children(num_children: int = 3) -> tuple[Task, list[
     Returns:
         Tuple of (parent_task, list of child_tasks) (not persisted to DB).
     """
-    parent = TaskFactory.build(parent_task_id=None, decomposition_level=0)
+    parent = TaskFactory.build(parent_task_id=None)
     children = [
         TaskFactory.build(
             parent_task_id=parent.id,
-            decomposition_level=1,
+            # decomposition_level will be auto-set by DB trigger
             name=f"{parent.name} - サブタスク{i+1}",
         )
         for i in range(num_children)
