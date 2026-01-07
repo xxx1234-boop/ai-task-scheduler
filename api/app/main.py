@@ -4,8 +4,8 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 
 from app.config import settings
-from app.routers import health, genres, projects, tasks, schedules, time_entries, settings as settings_router
-from app.routers.workflow import timer
+from app.routers import health, genres, projects, tasks, schedules, time_entries, settings as settings_router, task_dependencies
+from app.routers.workflow import timer, tasks as workflow_tasks
 from app.schemas.common import ErrorResponse
 
 app = FastAPI(
@@ -69,6 +69,14 @@ app.include_router(
 # Workflow routers
 app.include_router(
     timer.router, prefix="/api/v1/workflow/timer", tags=["Workflow - Timer"]
+)
+app.include_router(
+    workflow_tasks.router, prefix="/api/v1/workflow/tasks", tags=["Workflow - Tasks"]
+)
+
+# Task dependencies
+app.include_router(
+    task_dependencies.router, prefix="/api/v1/tasks", tags=["Task Dependencies"]
 )
 
 
