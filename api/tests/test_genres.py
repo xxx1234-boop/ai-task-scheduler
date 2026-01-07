@@ -45,17 +45,15 @@ class TestGenreCRUD:
         assert "created_at" in data
 
     async def test_create_genre_without_color(self, client: AsyncClient):
-        """Test creating genre without optional color field."""
+        """Test creating genre without color field fails (color is required)."""
         # Arrange
         genre_data = {"name": "コーディング"}
 
         # Act
         response = await client.post("/api/v1/genres", json=genre_data)
 
-        # Assert
-        assert_status_code(response, 201)
-        data = response.json()
-        assert data["name"] == "コーディング"
+        # Assert - color is required, so this should fail with 422
+        assert_validation_error(response)
 
     async def test_create_genre_missing_name(self, client: AsyncClient):
         """Test that creating genre without required name fails."""
@@ -256,7 +254,7 @@ class TestGenreValidation:
         """Test creating genre with maximum length name (100 chars)."""
         # Arrange
         long_name = "あ" * 100  # Japanese characters
-        genre_data = {"name": long_name}
+        genre_data = {"name": long_name, "color": "#000000"}
 
         # Act
         response = await client.post("/api/v1/genres", json=genre_data)

@@ -6,7 +6,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.database import get_session
 from app.models import TimeEntry, TimeEntryUpdate
 from app.services.base import BaseCRUDService
-from app.schemas.common import PaginatedResponse
+from app.schemas.common import PaginatedResponse, TimeEntryCreate
 from app.schemas.responses import TimeEntryResponse
 from app.dependencies import CommonQueryParams
 
@@ -51,10 +51,11 @@ async def get_time_entry(
     "", response_model=TimeEntryResponse, status_code=status.HTTP_201_CREATED
 )
 async def create_time_entry(
-    time_entry: TimeEntry,
+    time_entry_in: TimeEntryCreate,
     session: AsyncSession = Depends(get_session),
 ):
     """Create a new time entry."""
+    time_entry = TimeEntry(**time_entry_in.model_dump())
     return await service.create(session, time_entry)
 
 

@@ -4,7 +4,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.database import get_session
 from app.models import Genre, GenreUpdate
 from app.services.base import BaseCRUDService
-from app.schemas.common import PaginatedResponse
+from app.schemas.common import PaginatedResponse, GenreCreate
 from app.schemas.responses import GenreResponse
 from app.dependencies import CommonQueryParams
 
@@ -38,10 +38,11 @@ async def get_genre(
 
 @router.post("", response_model=GenreResponse, status_code=status.HTTP_201_CREATED)
 async def create_genre(
-    genre: Genre,
+    genre_in: GenreCreate,
     session: AsyncSession = Depends(get_session),
 ):
     """Create a new genre."""
+    genre = Genre(**genre_in.model_dump())
     return await service.create(session, genre)
 
 

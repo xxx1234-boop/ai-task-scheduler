@@ -146,6 +146,7 @@ class TaskUpdate(SQLModel):
     estimated_hours: Optional[Decimal] = None
     priority: Optional[str] = None
     want_level: Optional[str] = None
+    parent_task_id: Optional[int] = None
     note: Optional[str] = None
 
 

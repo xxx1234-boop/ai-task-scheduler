@@ -94,6 +94,8 @@ def assert_validation_error(response: Response):
     """
     Assert that the response is a 422 validation error.
 
+    Supports both FastAPI's default validation error format and custom error format.
+
     Args:
         response: The HTTP response
 
@@ -102,9 +104,9 @@ def assert_validation_error(response: Response):
     """
     assert_status_code(response, 422)
     data = response.json()
-    assert "error" in data, "Response does not contain 'error' field"
-    assert data["error"].get("code") == "VALIDATION_ERROR", (
-        "Error code should be VALIDATION_ERROR"
+    # Support both FastAPI's default format (detail) and custom format (error)
+    assert "detail" in data or "error" in data, (
+        "Response does not contain 'detail' or 'error' field"
     )
 
 

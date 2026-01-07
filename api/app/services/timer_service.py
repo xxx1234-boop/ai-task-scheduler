@@ -1,8 +1,7 @@
 from datetime import datetime
-from decimal import Decimal
 from typing import Optional
 
-from sqlmodel import select, func
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.models import TimeEntry, Task
@@ -99,8 +98,8 @@ class TimerService:
 
         session.add(timer)
 
-        # Update task actual_hours
-        await self._update_task_actual_hours(session, timer.task_id)
+        # Note: actual_hours is now calculated dynamically from time_entries
+        # No need to update task.actual_hours (column was removed)
 
         await session.commit()
         await session.refresh(timer)
@@ -214,23 +213,3 @@ class TimerService:
 
         return task
 
-    async def _update_task_actual_hours(
-        self, session: AsyncSession, task_id: int
-    ) -> None:
-        """Recalculate task actual_hours from time entries.
-
-        Args:
-            session: Database session
-            task_id: Task ID to update
-        """
-        # Sum all duration_minutes for this task
-        query = select(func.sum(TimeEntry.duration_minutes)).where(
-            TimeEntry.task_id == task_id, TimeEntry.duration_minutes.isnot(None)
-        )
-        result = await session.execute(query)
-        total_minutes = result.scalar_one() or 0
-
-        # Update task
-        task = await self._get_task_by_id(session, task_id)
-        task.actual_hours = Decimal(total_minutes) / 60
-        session.add(task)

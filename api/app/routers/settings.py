@@ -1,26 +1,36 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, status
-from sqlmodel import select
+from fastapi import APIRouter, Depends, Query, status
+from sqlmodel import select, func
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.database import get_session
 from app.models import Setting, SettingUpdate
+from app.schemas.common import PaginatedResponse, SettingCreate
 from app.schemas.responses import SettingResponse
 from app.exceptions import NotFoundException
 
 router = APIRouter()
 
 
-@router.get("", response_model=List[SettingResponse])
+@router.get("", response_model=PaginatedResponse[SettingResponse])
 async def list_settings(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
     session: AsyncSession = Depends(get_session),
 ):
-    """Get all settings."""
-    query = select(Setting).order_by(Setting.key)
+    """Get all settings with pagination."""
+    # Count total
+    count_query = select(func.count()).select_from(Setting)
+    total_result = await session.execute(count_query)
+    total = total_result.scalar_one()
+
+    # Get items
+    query = select(Setting).order_by(Setting.key).offset(skip).limit(limit)
     result = await session.execute(query)
     items = result.scalars().all()
-    return items
+
+    return PaginatedResponse(items=items, total=total, skip=skip, limit=limit)
 
 
 @router.get("/{key}", response_model=SettingResponse)
@@ -42,8 +52,7 @@ async def get_setting(
 @router.put("/{key}", response_model=SettingResponse)
 async def upsert_setting(
     key: str,
-    value: str,
-    description: Optional[str] = None,
+    setting_in: SettingCreate,
     session: AsyncSession = Depends(get_session),
 ):
     """Update or create setting (upsert)."""
@@ -54,13 +63,13 @@ async def upsert_setting(
 
     if existing:
         # Update existing
-        existing.value = value
-        if description is not None:
-            existing.description = description
+        existing.value = setting_in.value
+        if setting_in.description is not None:
+            existing.description = setting_in.description
         setting = existing
     else:
-        # Create new
-        setting = Setting(key=key, value=value, description=description)
+        # Create new - use key from URL path
+        setting = Setting(key=key, value=setting_in.value, description=setting_in.description)
         session.add(setting)
 
     await session.commit()

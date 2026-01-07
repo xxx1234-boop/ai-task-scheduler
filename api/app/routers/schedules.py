@@ -7,7 +7,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.database import get_session
 from app.models import Schedule, ScheduleUpdate
 from app.services.base import BaseCRUDService
-from app.schemas.common import PaginatedResponse
+from app.schemas.common import PaginatedResponse, ScheduleCreate
 from app.schemas.responses import ScheduleResponse
 from app.dependencies import CommonQueryParams
 
@@ -59,10 +59,11 @@ async def get_schedule(
 
 @router.post("", response_model=ScheduleResponse, status_code=status.HTTP_201_CREATED)
 async def create_schedule(
-    schedule: Schedule,
+    schedule_in: ScheduleCreate,
     session: AsyncSession = Depends(get_session),
 ):
     """Create a new schedule."""
+    schedule = Schedule(**schedule_in.model_dump())
     return await service.create(session, schedule)
 
 

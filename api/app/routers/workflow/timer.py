@@ -1,7 +1,11 @@
+from decimal import Decimal
+
 from fastapi import APIRouter, Depends, status
+from sqlmodel import select, func
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.database import get_session
+from app.models import TimeEntry
 from app.services.timer_service import TimerService
 from app.schemas.workflow_requests import TimerStartRequest, TimerStopRequest
 from app.schemas.workflow_responses import (
@@ -82,6 +86,15 @@ async def stop_timer(
     # Load task relationship
     await session.refresh(entry, ["task"])
 
+    # Calculate actual hours dynamically from time_entries
+    query = select(func.sum(TimeEntry.duration_minutes)).where(
+        TimeEntry.task_id == entry.task_id,
+        TimeEntry.duration_minutes.isnot(None),
+    )
+    result = await session.execute(query)
+    total_minutes = result.scalar_one() or 0
+    task_actual_hours = Decimal(total_minutes) / 60
+
     return TimerStopResponse(
         time_entry_id=entry.id,
         task_id=entry.task_id,
@@ -89,7 +102,7 @@ async def stop_timer(
         start_time=entry.start_time,
         end_time=entry.end_time,
         duration_minutes=entry.duration_minutes,
-        task_actual_hours_total=entry.task.actual_hours,
+        task_actual_hours_total=task_actual_hours,
     )
 
 

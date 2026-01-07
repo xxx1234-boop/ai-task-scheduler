@@ -46,7 +46,6 @@ class TaskResponse(BaseModel):
     status: str
     deadline: Optional[datetime] = None
     estimated_hours: Optional[Decimal] = None
-    actual_hours: Decimal
     priority: str
     want_level: str
     recurrence: str

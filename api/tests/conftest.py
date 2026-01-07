@@ -16,14 +16,14 @@ from typing import AsyncGenerator
 import pytest
 from alembic import command
 from alembic.config import Config
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 from sqlmodel import SQLModel
 
 from app.database import get_session
 from app.main import app
-from app.models import Genre, Project, Schedule, Setting, Task, TimeEntry
+from app.models import Genre, Project, Schedule, Setting, Task, TaskDependency, TimeEntry
 
 
 # =============================================================================
@@ -98,10 +98,8 @@ def apply_migrations(test_database_url: str):
     alembic_cfg = Config(alembic_ini_path)
     alembic_cfg.set_main_option("sqlalchemy.url", sync_db_url)
 
-    # Downgrade to clean state before running tests
-    command.downgrade(alembic_cfg, "base")
-
-    # Run migrations to head
+    # Just ensure we're at head (don't try to downgrade first)
+    # The downgrade has broken migrations with unnamed constraints
     command.upgrade(alembic_cfg, "head")
 
     yield
@@ -173,8 +171,9 @@ async def client(test_session: AsyncSession) -> AsyncGenerator[AsyncClient, None
 
     app.dependency_overrides[get_session] = override_get_session
 
-    # Create async client
-    async with AsyncClient(app=app, base_url="http://test") as ac:
+    # Create async client with ASGITransport (required for httpx 0.27+)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
     # Clear dependency overrides after test
@@ -342,3 +341,45 @@ async def setting_factory(test_session: AsyncSession):
         return setting
 
     return _create_setting
+
+
+@pytest.fixture
+async def task_dependency_factory(test_session: AsyncSession):
+    """
+    Factory fixture for creating TaskDependency instances in the test database.
+
+    Usage:
+        dep = await task_dependency_factory(task_id=task.id, depends_on_task_id=other_task.id)
+    """
+
+    async def _create_dependency(task_id: int, depends_on_task_id: int) -> TaskDependency:
+        dep = TaskDependency(task_id=task_id, depends_on_task_id=depends_on_task_id)
+        test_session.add(dep)
+        await test_session.commit()
+        await test_session.refresh(dep)
+        return dep
+
+    return _create_dependency
+
+
+@pytest.fixture
+async def running_timer_factory(test_session: AsyncSession, task_factory, time_entry_factory):
+    """
+    Factory fixture for creating a task with a running timer (end_time=None).
+
+    Usage:
+        task, entry = await running_timer_factory(name="タスク名")
+    """
+    from datetime import datetime, timedelta
+
+    async def _create_running_timer(**task_kwargs) -> tuple[Task, TimeEntry]:
+        task = await task_factory(**task_kwargs)
+        entry = await time_entry_factory(
+            task_id=task.id,
+            start_time=datetime.now() - timedelta(minutes=30),
+            end_time=None,
+            duration_minutes=None,
+        )
+        return task, entry
+
+    return _create_running_timer

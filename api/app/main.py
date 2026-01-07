@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
 from app.routers import health, genres, projects, tasks, schedules, time_entries, settings as settings_router, task_dependencies, dashboard
@@ -36,6 +37,44 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             code="VALIDATION_ERROR",
             message="Request validation failed",
             details={"errors": exc.errors()},
+        ).model_dump(),
+    )
+
+
+@app.exception_handler(IntegrityError)
+async def integrity_error_handler(request: Request, exc: IntegrityError):
+    """Handle database integrity errors (FK violations, unique constraints, etc.)."""
+    error_msg = str(exc.orig) if exc.orig else str(exc)
+
+    # Check for foreign key violation
+    if "foreign key" in error_msg.lower() or "ForeignKeyViolation" in error_msg:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content=ErrorResponse.create(
+                code="FOREIGN_KEY_VIOLATION",
+                message="Referenced resource does not exist",
+                details={"error": error_msg},
+            ).model_dump(),
+        )
+
+    # Check for unique constraint violation
+    if "unique" in error_msg.lower() or "UniqueViolation" in error_msg:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content=ErrorResponse.create(
+                code="UNIQUE_VIOLATION",
+                message="Resource already exists",
+                details={"error": error_msg},
+            ).model_dump(),
+        )
+
+    # Other integrity errors
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content=ErrorResponse.create(
+            code="INTEGRITY_ERROR",
+            message="Database integrity constraint violated",
+            details={"error": error_msg},
         ).model_dump(),
     )
 
@@ -83,6 +122,8 @@ app.include_router(
 app.include_router(
     dashboard.router, prefix="/api/v1/dashboard", tags=["Dashboard"]
 )
+
+# Note: MCP server runs as a separate process (see docker-compose.yml mcp service)
 
 
 @app.get("/")

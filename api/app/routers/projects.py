@@ -4,7 +4,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.database import get_session
 from app.models import Project, ProjectUpdate
 from app.services.base import BaseCRUDService
-from app.schemas.common import PaginatedResponse
+from app.schemas.common import PaginatedResponse, ProjectCreate
 from app.schemas.responses import ProjectResponse
 from app.dependencies import CommonQueryParams
 
@@ -38,10 +38,11 @@ async def get_project(
 
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 async def create_project(
-    project: Project,
+    project_in: ProjectCreate,
     session: AsyncSession = Depends(get_session),
 ):
     """Create a new project."""
+    project = Project(**project_in.model_dump())
     return await service.create(session, project)
 
 
