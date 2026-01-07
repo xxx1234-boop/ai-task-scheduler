@@ -1,8 +1,8 @@
 """
-Pytest configuration and fixtures for integration tests with Testcontainers.
+Pytest configuration and fixtures for integration tests.
 
 This module provides:
-- PostgreSQL container setup via Testcontainers
+- Database connection to existing PostgreSQL container (from docker-compose)
 - Database migration application via Alembic
 - Test session management with transaction rollback
 - FastAPI test client with dependency overrides
@@ -20,7 +20,6 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 from sqlmodel import SQLModel
-from testcontainers.postgres import PostgresContainer
 
 from app.database import get_session
 from app.main import app
@@ -33,34 +32,30 @@ from app.models import Genre, Project, Schedule, Setting, Task, TimeEntry
 
 
 @pytest.fixture(scope="session")
-def postgres_container():
+def test_database_url() -> str:
     """
-    Create and start a PostgreSQL 16 container for the entire test session.
+    Get the test database URL from environment variables or use default.
 
-    This container is reused across all tests for performance.
-    Container startup takes 5-10 seconds, so reusing it significantly speeds up tests.
+    Uses the existing PostgreSQL container from docker-compose.yml.
+    The database connection is: postgresql+asyncpg://postgres:postgres@db:5432/research_tracker
     """
-    with PostgresContainer("postgres:16-alpine", driver="psycopg2") as postgres:
-        # Wait for container to be ready
-        postgres.get_connection_url()
-        yield postgres
+    # Try to get from environment variable first
+    db_url = os.getenv(
+        "TEST_DATABASE_URL",
+        os.getenv(
+            "DATABASE_URL",
+            "postgresql+asyncpg://postgres:postgres@db:5432/research_tracker",
+        ),
+    )
 
+    # Ensure it's in asyncpg format
+    if db_url.startswith("postgresql://"):
+        db_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
+    elif not db_url.startswith("postgresql+asyncpg://"):
+        # If it's some other format, convert it
+        db_url = f"postgresql+asyncpg://{db_url}"
 
-@pytest.fixture(scope="session")
-def test_database_url(postgres_container) -> str:
-    """
-    Get the database URL from the Testcontainer and convert it for asyncpg.
-
-    Testcontainers provides a psycopg2 URL, but we need to convert it to asyncpg format
-    for SQLModel async operations.
-    """
-    # Get the connection URL (postgresql://...)
-    db_url = postgres_container.get_connection_url()
-
-    # Convert to asyncpg format (postgresql+asyncpg://...)
-    async_db_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
-
-    return async_db_url
+    return db_url
 
 
 @pytest.fixture(scope="session")
@@ -81,12 +76,15 @@ def test_engine(test_database_url: str) -> AsyncEngine:
 
 
 @pytest.fixture(scope="session")
-def apply_migrations(test_database_url: str, postgres_container):
+def apply_migrations(test_database_url: str):
     """
     Apply Alembic migrations to the test database once per session.
 
-    This runs after the container is ready and before any tests execute.
+    This runs before any tests execute.
     Uses the synchronous (psycopg2) URL since Alembic migrations are synchronous.
+
+    Note: Migrations are applied to the existing docker-compose database.
+    The database should already exist and be running.
     """
     # Get sync URL for Alembic (remove +asyncpg)
     sync_db_url = test_database_url.replace("+asyncpg", "")
@@ -100,12 +98,15 @@ def apply_migrations(test_database_url: str, postgres_container):
     alembic_cfg = Config(alembic_ini_path)
     alembic_cfg.set_main_option("sqlalchemy.url", sync_db_url)
 
+    # Downgrade to clean state before running tests
+    command.downgrade(alembic_cfg, "base")
+
     # Run migrations to head
     command.upgrade(alembic_cfg, "head")
 
     yield
 
-    # Optional: Downgrade after all tests (usually not needed)
+    # Optional: Downgrade after all tests for cleanup
     # command.downgrade(alembic_cfg, "base")
 
 
@@ -341,20 +342,3 @@ async def setting_factory(test_session: AsyncSession):
         return setting
 
     return _create_setting
-
-
-# =============================================================================
-# Event loop configuration for async tests
-# =============================================================================
-
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """
-    Create an event loop for the entire test session.
-
-    This is needed for pytest-asyncio to work properly with session-scoped async fixtures.
-    """
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()

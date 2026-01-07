@@ -53,6 +53,21 @@ services:
     networks:
       - research-net
 
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: research-scheduler-tunnel
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks:
+      - research-net
+    # Tunnelトークンが設定されていない場合は起動しない
+    profiles:
+      - production
+
 volumes:
   postgres_data:
     driver: local
