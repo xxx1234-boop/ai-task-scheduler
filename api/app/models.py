@@ -76,6 +76,7 @@ class Schedule(SQLModel, table=True):
     end_time: Optional[datetime] = None
     allocated_hours: Decimal = Field(max_digits=4, decimal_places=2)
     is_generated_by_ai: bool = Field(default=False)
+    status: str = Field(default="scheduled", max_length=20)  # scheduled, completed, skipped
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
@@ -98,6 +99,14 @@ class TimeEntry(SQLModel, table=True):
 
     # Relationships
     task: Task = Relationship(back_populates="time_entries")
+
+
+# ===== TaskDependency =====
+class TaskDependency(SQLModel, table=True):
+    __tablename__ = "task_dependencies"
+
+    task_id: int = Field(foreign_key="tasks.id", primary_key=True)
+    depends_on_task_id: int = Field(foreign_key="tasks.id", primary_key=True)
 
 
 # ===== Setting =====
@@ -142,6 +151,7 @@ class ScheduleUpdate(SQLModel):
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     allocated_hours: Optional[Decimal] = None
+    status: Optional[str] = None
 
 
 class TimeEntryUpdate(SQLModel):
