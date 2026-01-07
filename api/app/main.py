@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 
 from app.config import settings
-from app.routers import health, genres, projects, tasks, schedules, time_entries, settings as settings_router, task_dependencies
+from app.routers import health, genres, projects, tasks, schedules, time_entries, settings as settings_router, task_dependencies, dashboard
 from app.routers.workflow import timer, tasks as workflow_tasks
 from app.schemas.common import ErrorResponse
 
@@ -77,6 +77,11 @@ app.include_router(
 # Task dependencies
 app.include_router(
     task_dependencies.router, prefix="/api/v1/tasks", tags=["Task Dependencies"]
+)
+
+# Dashboard
+app.include_router(
+    dashboard.router, prefix="/api/v1/dashboard", tags=["Dashboard"]
 )
 
 
