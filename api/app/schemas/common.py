@@ -36,7 +36,7 @@ class ProjectCreate(BaseModel):
     """Request schema for creating a project."""
 
     name: str = Field(..., min_length=1, max_length=200)
-    description: Optional[str] = None
+    description: str  # 必須
     deadline: Optional[datetime] = None
     is_active: bool = True
 

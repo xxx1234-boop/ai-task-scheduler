@@ -25,7 +25,7 @@ class Project(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(max_length=200)
-    description: Optional[str] = None
+    description: str = ""  # Markdown対応の詳細説明（必須）
     deadline: Optional[datetime] = None
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.now)
@@ -55,6 +55,7 @@ class Task(SQLModel, table=True):
     # Auto-computed by database trigger based on parent_task_id hierarchy - do not set manually
     decomposition_level: int = Field(default=0)
     note: Optional[str] = None
+    description: str = ""  # Markdown対応の詳細説明（必須）
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
@@ -141,6 +142,7 @@ class TaskCreate(SQLModel):
     want_level: Optional[str] = Field(default="中", max_length=10)
     parent_task_id: Optional[int] = None
     note: Optional[str] = None
+    description: str  # 必須
 
 
 class TaskUpdate(SQLModel):
@@ -155,6 +157,7 @@ class TaskUpdate(SQLModel):
     want_level: Optional[str] = None
     parent_task_id: Optional[int] = None
     note: Optional[str] = None
+    description: Optional[str] = None
 
 
 class ProjectUpdate(SQLModel):

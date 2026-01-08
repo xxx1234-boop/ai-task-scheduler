@@ -26,7 +26,7 @@ class ProjectResponse(BaseModel):
 
     id: int
     name: str
-    description: Optional[str] = None
+    description: str
     deadline: Optional[datetime] = None
     is_active: bool
     created_at: datetime
@@ -54,6 +54,7 @@ class TaskResponse(BaseModel):
     parent_task_id: Optional[int] = None
     decomposition_level: int
     note: Optional[str] = None
+    description: str
     created_at: datetime
     updated_at: datetime
 
