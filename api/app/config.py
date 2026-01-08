@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import Any
+from typing import Any, Optional
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -25,6 +25,10 @@ class Settings(BaseSettings):
 
     # Environment
     ENV: str = "development"
+
+    # Claude API
+    ANTHROPIC_API_KEY: Optional[str] = None
+    CLAUDE_MODEL: str = "claude-sonnet-4-20250514"
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod

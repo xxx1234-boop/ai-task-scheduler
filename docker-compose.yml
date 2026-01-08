@@ -24,6 +24,8 @@ services:
       context: ./api
       dockerfile: Dockerfile
     container_name: research-scheduler-api
+    env_file:
+      - ./api/.env
     environment:
       DATABASE_URL: postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-research_tracker}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -92,13 +94,28 @@ services:
     build:
       context: ./dashboard
       dockerfile: Dockerfile
+      target: deps
     container_name: research-scheduler-dashboard
     environment:
       API_URL: http://api:8000
+      WATCHPACK_POLLING: "true"
+    volumes:
+      - ./dashboard/app:/app/app
+      - ./dashboard/components:/app/components
+      - ./dashboard/hooks:/app/hooks
+      - ./dashboard/lib:/app/lib
+      - ./dashboard/public:/app/public
+      - ./dashboard/next.config.mjs:/app/next.config.mjs
+      - ./dashboard/tailwind.config.ts:/app/tailwind.config.ts
+      - ./dashboard/postcss.config.mjs:/app/postcss.config.mjs
+      - ./dashboard/tsconfig.json:/app/tsconfig.json
+      - /app/node_modules
+      - /app/.next
     ports:
       - "${DASHBOARD_PORT:-3000}:3000"
     depends_on:
       - api
+    command: npm run dev
     restart: unless-stopped
     networks:
       - research-net

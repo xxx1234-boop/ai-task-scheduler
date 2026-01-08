@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -6,8 +8,20 @@ from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
 from app.routers import health, genres, projects, tasks, schedules, time_entries, settings as settings_router, task_dependencies, dashboard
-from app.routers.workflow import timer, tasks as workflow_tasks
+from app.routers.workflow import timer, tasks as workflow_tasks, schedule as workflow_schedule
 from app.schemas.common import ErrorResponse
+from app.scheduler import start_scheduler, stop_scheduler
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup and shutdown events."""
+    # Startup
+    start_scheduler()
+    yield
+    # Shutdown
+    stop_scheduler()
+
 
 app = FastAPI(
     title=settings.API_TITLE,
@@ -15,6 +29,7 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
+    lifespan=lifespan,
 )
 
 # CORS設定
@@ -112,6 +127,9 @@ app.include_router(
 app.include_router(
     workflow_tasks.router, prefix="/api/v1/workflow/tasks", tags=["Workflow - Tasks"]
 )
+app.include_router(
+    workflow_schedule.router, prefix="/api/v1/workflow/schedule", tags=["Workflow - Schedule"]
+)
 
 # Task dependencies
 app.include_router(
@@ -123,7 +141,7 @@ app.include_router(
     dashboard.router, prefix="/api/v1/dashboard", tags=["Dashboard"]
 )
 
-# Note: MCP server runs as a separate process (see docker-compose.yml mcp service)
+# Note: MCP server runs as a standalone FastMCP service (see docker-compose.yml mcp service)
 
 
 @app.get("/")
