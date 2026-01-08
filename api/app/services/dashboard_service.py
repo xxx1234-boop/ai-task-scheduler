@@ -18,6 +18,8 @@ from app.schemas.dashboard import (
     TodayResponse,
     TimelineBlock,
     TimelineResponse,
+    WeeklyTimelineDay,
+    WeeklyTimelineResponse,
     GroupedHours,
     DailyData,
     WeeklyTotals,
@@ -129,6 +131,7 @@ class DashboardService:
             item = KanbanTaskItem(
                 id=task.id,
                 name=task.name,
+                description=task.description,
                 project_name=row.project_name,
                 genre_name=row.genre_name,
                 genre_color=row.genre_color,
@@ -281,6 +284,103 @@ class DashboardService:
         ]
 
         return TimelineResponse(date=target_date, planned=planned, actual=actual)
+
+    # ===== Weekly Timeline =====
+
+    async def get_weekly_timeline(
+        self,
+        session: AsyncSession,
+        week_start: Optional[date] = None,
+        start_hour: int = 6,
+        end_hour: int = 24,
+    ) -> WeeklyTimelineResponse:
+        """Get weekly timeline data for calendar view."""
+        monday, sunday = self._get_week_bounds(week_start)
+        today = date.today()
+        day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+        # Fetch all planned schedules for the week in one query
+        planned_query = (
+            select(Schedule, Task.name.label("task_name"), Genre.color.label("genre_color"))
+            .join(Task, Schedule.task_id == Task.id)
+            .outerjoin(Genre, Task.genre_id == Genre.id)
+            .where(func.date(Schedule.scheduled_date).between(monday, sunday))
+            .where(Schedule.start_time.isnot(None))
+            .where(Schedule.end_time.isnot(None))
+            .order_by(Schedule.start_time)
+        )
+        planned_result = await session.execute(planned_query)
+        planned_rows = planned_result.all()
+
+        # Group planned by date
+        planned_by_date: dict[date, List[TimelineBlock]] = {
+            monday + timedelta(days=i): [] for i in range(7)
+        }
+        for row in planned_rows:
+            schedule = row[0]
+            day = schedule.scheduled_date.date() if isinstance(schedule.scheduled_date, datetime) else schedule.scheduled_date
+            if day in planned_by_date:
+                planned_by_date[day].append(
+                    TimelineBlock(
+                        start=schedule.start_time.strftime("%H:%M"),
+                        end=schedule.end_time.strftime("%H:%M"),
+                        task_id=schedule.task_id,
+                        task_name=row.task_name,
+                        genre_color=row.genre_color,
+                    )
+                )
+
+        # Fetch all actual time entries for the week in one query
+        actual_query = (
+            select(TimeEntry, Task.name.label("task_name"), Genre.color.label("genre_color"))
+            .join(Task, TimeEntry.task_id == Task.id)
+            .outerjoin(Genre, Task.genre_id == Genre.id)
+            .where(func.date(TimeEntry.start_time).between(monday, sunday))
+            .where(TimeEntry.end_time.isnot(None))
+            .order_by(TimeEntry.start_time)
+        )
+        actual_result = await session.execute(actual_query)
+        actual_rows = actual_result.all()
+
+        # Group actual by date
+        actual_by_date: dict[date, List[TimelineBlock]] = {
+            monday + timedelta(days=i): [] for i in range(7)
+        }
+        for row in actual_rows:
+            entry = row[0]
+            day = entry.start_time.date()
+            if day in actual_by_date:
+                actual_by_date[day].append(
+                    TimelineBlock(
+                        start=entry.start_time.strftime("%H:%M"),
+                        end=entry.end_time.strftime("%H:%M"),
+                        task_id=entry.task_id,
+                        task_name=row.task_name,
+                        genre_color=row.genre_color,
+                    )
+                )
+
+        # Build response
+        days = []
+        for i in range(7):
+            day = monday + timedelta(days=i)
+            days.append(
+                WeeklyTimelineDay(
+                    date=day,
+                    day_of_week=day_names[i],
+                    is_today=(day == today),
+                    planned=planned_by_date[day],
+                    actual=actual_by_date[day],
+                )
+            )
+
+        return WeeklyTimelineResponse(
+            week_start=monday,
+            week_end=sunday,
+            start_hour=start_hour,
+            end_hour=end_hour,
+            days=days,
+        )
 
     # ===== Weekly =====
 

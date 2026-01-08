@@ -10,6 +10,7 @@ from app.schemas.dashboard import (
     KanbanResponse,
     TodayResponse,
     TimelineResponse,
+    WeeklyTimelineResponse,
     WeeklyResponse,
     StatsResponse,
     SummaryResponse,
@@ -62,6 +63,26 @@ async def get_timeline(
     Returns planned (schedules) and actual (time entries) time blocks.
     """
     return await dashboard_service.get_timeline(session, target_date=target_date)
+
+
+@router.get("/weekly-timeline", response_model=WeeklyTimelineResponse)
+async def get_weekly_timeline(
+    week_start: Optional[date] = Query(None, description="Week start date (default: this Monday)"),
+    start_hour: int = Query(6, ge=0, le=23, description="Start hour for timeline (0-23)"),
+    end_hour: int = Query(24, ge=1, le=24, description="End hour for timeline (1-24)"),
+    session: AsyncSession = Depends(get_session),
+):
+    """Get weekly timeline data for calendar-style view.
+
+    Returns 7 days of planned (schedules) and actual (time entries) time blocks.
+    Time range defaults to 6:00-24:00.
+    """
+    return await dashboard_service.get_weekly_timeline(
+        session,
+        week_start=week_start,
+        start_hour=start_hour,
+        end_hour=end_hour,
+    )
 
 
 @router.get("/weekly", response_model=WeeklyResponse)

@@ -24,6 +24,7 @@ class KanbanTaskItem(BaseModel):
 
     id: int
     name: str
+    description: str
     project_name: Optional[str] = None
     genre_name: Optional[str] = None
     genre_color: Optional[str] = None
@@ -113,6 +114,29 @@ class TimelineResponse(BaseModel):
     date: date
     planned: List[TimelineBlock] = []
     actual: List[TimelineBlock] = []
+
+
+# ===== Weekly Timeline =====
+
+
+class WeeklyTimelineDay(BaseModel):
+    """Single day's timeline data in weekly view."""
+
+    date: date
+    day_of_week: str  # "Mon", "Tue", etc.
+    is_today: bool
+    planned: List[TimelineBlock] = []
+    actual: List[TimelineBlock] = []
+
+
+class WeeklyTimelineResponse(BaseModel):
+    """Response for /dashboard/weekly-timeline."""
+
+    week_start: date
+    week_end: date
+    start_hour: int  # e.g., 6 (06:00)
+    end_hour: int  # e.g., 24 (00:00 next day)
+    days: List[WeeklyTimelineDay]
 
 
 # ===== Weekly =====
