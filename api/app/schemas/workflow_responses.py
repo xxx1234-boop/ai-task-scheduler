@@ -129,3 +129,56 @@ class TaskCompleteResponse(BaseModel):
     timer_stopped: Optional[dict] = None
     schedules_completed: int
     unblocked_tasks: List[TaskSummary]
+
+
+# ===== Schedule Generation Responses =====
+
+
+class ScheduleEntry(BaseModel):
+    """Generated schedule entry."""
+
+    id: int
+    task_id: int
+    task_name: str
+    project_name: Optional[str] = None
+    genre_name: Optional[str] = None
+    genre_color: Optional[str] = None
+    date: datetime
+    start_time: Optional[str] = None  # HH:MM
+    end_time: Optional[str] = None  # HH:MM
+    allocated_hours: Decimal
+    is_generated_by_ai: bool
+
+
+class ProjectSummary(BaseModel):
+    """Hours summary by project."""
+
+    id: Optional[int] = None
+    name: str
+    hours: Decimal
+
+
+class GenreSummary(BaseModel):
+    """Hours summary by genre."""
+
+    id: Optional[int] = None
+    name: str
+    hours: Decimal
+
+
+class ScheduleSummary(BaseModel):
+    """Summary of generated schedule."""
+
+    total_planned_hours: Decimal
+    by_project: List[ProjectSummary]
+    by_genre: List[GenreSummary]
+
+
+class WeeklyScheduleResponse(BaseModel):
+    """Response for weekly schedule generation."""
+
+    week_start: datetime
+    week_end: datetime
+    schedules: List[ScheduleEntry]
+    summary: ScheduleSummary
+    warnings: List[str]
