@@ -59,10 +59,17 @@ class Task(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.now)
 
     # Relationships
+    # passive_deletes=True delegates deletion to DB's ON DELETE CASCADE
     project: Optional[Project] = Relationship(back_populates="tasks")
     genre: Optional[Genre] = Relationship(back_populates="tasks")
-    time_entries: list["TimeEntry"] = Relationship(back_populates="task")
-    schedules: list["Schedule"] = Relationship(back_populates="task")
+    time_entries: list["TimeEntry"] = Relationship(
+        back_populates="task",
+        sa_relationship_kwargs={"passive_deletes": True}
+    )
+    schedules: list["Schedule"] = Relationship(
+        back_populates="task",
+        sa_relationship_kwargs={"passive_deletes": True}
+    )
 
 
 # ===== Schedule =====

@@ -12,14 +12,20 @@ class TimerService:
     """Service for timer operations."""
 
     async def get_running_timer(
-        self, session: AsyncSession
+        self, session: AsyncSession, for_update: bool = False
     ) -> Optional[TimeEntry]:
         """Get the currently running timer (end_time=NULL).
+
+        Args:
+            session: Database session
+            for_update: If True, acquire row-level lock (SELECT FOR UPDATE)
 
         Returns:
             TimeEntry if a timer is running, None otherwise
         """
         query = select(TimeEntry).where(TimeEntry.end_time.is_(None))
+        if for_update:
+            query = query.with_for_update()
         result = await session.execute(query)
         return result.scalar_one_or_none()
 
@@ -51,9 +57,9 @@ class TimerService:
         else:
             raise ValidationException("Either task_id or task_name required")
 
-        # Stop running timer if exists
+        # Stop running timer if exists (with lock to prevent race condition)
         previous_entry = None
-        running = await self.get_running_timer(session)
+        running = await self.get_running_timer(session, for_update=True)
         if running:
             previous_entry = await self.stop_timer(session)
 
@@ -90,7 +96,7 @@ class TimerService:
         Raises:
             TimerNotRunningException: If no timer is currently running
         """
-        timer = await self.get_running_timer(session)
+        timer = await self.get_running_timer(session, for_update=True)
         if not timer:
             raise TimerNotRunningException()
 
