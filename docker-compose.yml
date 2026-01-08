@@ -60,14 +60,13 @@ services:
       dockerfile: Dockerfile
     container_name: research-scheduler-mcp
     environment:
-      DATABASE_URL: postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-research_tracker}
+      API_URL: http://api:8000
     volumes:
       - ./api/app:/app/app
     ports:
       - "${MCP_PORT:-8001}:8001"
     depends_on:
-      db:
-        condition: service_healthy
+      - api
     command: python -m app.mcp.mcp_server
     restart: unless-stopped
     networks:

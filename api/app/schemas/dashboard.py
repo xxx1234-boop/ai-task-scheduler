@@ -32,6 +32,7 @@ class KanbanTaskItem(BaseModel):
     estimated_hours: Optional[Decimal] = None
     actual_hours: Decimal = Decimal("0")
     blocked_by: List[str] = []
+    is_timer_running: bool = False
 
 
 class KanbanColumns(BaseModel):

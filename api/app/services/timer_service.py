@@ -57,6 +57,11 @@ class TimerService:
         if running:
             previous_entry = await self.stop_timer(session)
 
+        # Update task status to "doing" if not already
+        if task.status != "doing":
+            task.status = "doing"
+            session.add(task)
+
         # Create new timer
         new_entry = TimeEntry(
             task_id=task.id,

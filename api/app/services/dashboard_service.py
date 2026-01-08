@@ -97,6 +97,10 @@ class DashboardService:
         self, session: AsyncSession, project_id: Optional[int] = None
     ) -> KanbanResponse:
         """Get kanban board data."""
+        # Get running timer's task_id
+        running_timer = await self.timer_service.get_running_timer(session)
+        running_task_id = running_timer.task_id if running_timer else None
+
         # Build base query
         query = (
             select(Task, Project.name.label("project_name"), Genre.name.label("genre_name"), Genre.color.label("genre_color"))
@@ -133,6 +137,7 @@ class DashboardService:
                 estimated_hours=task.estimated_hours,
                 actual_hours=actual_hours,
                 blocked_by=blocked_by,
+                is_timer_running=(task.id == running_task_id),
             )
 
             if task.status == "todo":
