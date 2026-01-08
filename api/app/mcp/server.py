@@ -14,9 +14,10 @@ from app.services.timer_service import TimerService
 from app.services.dashboard_service import DashboardService
 from app.services.task_service import TaskService
 from app.services.task_workflow_service import TaskWorkflowService
+from app.services.task_dependency_service import TaskDependencyService
 from app.services.base import BaseCRUDService
 from app.schemas.workflow_requests import SubtaskInput, TaskInput
-from app.exceptions import NotFoundException, ValidationException
+from app.exceptions import NotFoundException, ValidationException, DependencyCycleException
 
 
 class MCPServer:
@@ -28,6 +29,7 @@ class MCPServer:
         self.dashboard_service = DashboardService()
         self.task_service = TaskService(Task)
         self.task_workflow_service = TaskWorkflowService()
+        self.task_dependency_service = TaskDependencyService()
         self.project_service = BaseCRUDService[Project, Any](Project)
 
         # Map tool names to handlers
@@ -49,6 +51,8 @@ class MCPServer:
             "complete_task": self._handle_complete_task,
             "breakdown_task": self._handle_breakdown_task,
             "merge_tasks": self._handle_merge_tasks,
+            "add_task_dependency": self._handle_add_task_dependency,
+            "remove_task_dependency": self._handle_remove_task_dependency,
             # Project tool
             "create_project": self._handle_create_project,
             # Schedule tools (placeholders)
@@ -80,6 +84,8 @@ class MCPServer:
         except NotFoundException as e:
             return {"error": str(e)}
         except ValidationException as e:
+            return {"error": str(e)}
+        except DependencyCycleException as e:
             return {"error": str(e)}
         except Exception as e:
             return {"error": f"Internal error: {str(e)}"}
@@ -162,9 +168,7 @@ class MCPServer:
         actual_hours = Decimal(actual_minutes) / 60
 
         # Get dependencies
-        from app.services.task_dependency_service import TaskDependencyService
-        dep_service = TaskDependencyService()
-        deps = await dep_service.get_dependencies(self.session, task_id)
+        deps = await self.task_dependency_service.get_dependencies(self.session, task_id)
 
         return {
             "id": task.id,
@@ -394,6 +398,54 @@ class MCPServer:
         )
 
         return self._serialize_response(response)
+
+    async def _handle_add_task_dependency(self, args: dict) -> dict:
+        """Add a dependency between tasks."""
+        task_id = args["task_id"]
+        depends_on_task_id = args["depends_on_task_id"]
+
+        await self.task_dependency_service.add_dependency(
+            self.session,
+            task_id=task_id,
+            depends_on_task_id=depends_on_task_id,
+        )
+
+        # Get updated dependencies
+        deps = await self.task_dependency_service.get_dependencies(
+            self.session, task_id
+        )
+
+        return {
+            "added": {
+                "task_id": task_id,
+                "depends_on_task_id": depends_on_task_id,
+            },
+            "current_dependencies": deps,
+        }
+
+    async def _handle_remove_task_dependency(self, args: dict) -> dict:
+        """Remove a dependency between tasks."""
+        task_id = args["task_id"]
+        depends_on_task_id = args["depends_on_task_id"]
+
+        await self.task_dependency_service.remove_dependency(
+            self.session,
+            task_id=task_id,
+            depends_on_task_id=depends_on_task_id,
+        )
+
+        # Get updated dependencies
+        deps = await self.task_dependency_service.get_dependencies(
+            self.session, task_id
+        )
+
+        return {
+            "removed": {
+                "task_id": task_id,
+                "depends_on_task_id": depends_on_task_id,
+            },
+            "current_dependencies": deps,
+        }
 
     # ===== Project Tool Handlers =====
 

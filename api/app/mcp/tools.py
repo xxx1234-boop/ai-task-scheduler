@@ -130,6 +130,10 @@ MCP_TOOLS = [
                     "type": "string",
                     "description": "タスク名",
                 },
+                "description": {
+                    "type": "string",
+                    "description": "タスクの詳細説明（Markdown対応）",
+                },
                 "project_id": {
                     "type": "integer",
                     "description": "プロジェクトID",
@@ -158,7 +162,7 @@ MCP_TOOLS = [
                     "description": "締め切り（ISO 8601形式）",
                 },
             },
-            "required": ["name"],
+            "required": ["name", "description"],
         },
     },
     {
@@ -202,6 +206,10 @@ MCP_TOOLS = [
                 "note": {
                     "type": "string",
                     "description": "メモ",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "タスクの詳細説明（Markdown対応）",
                 },
             },
             "required": ["task_id"],
@@ -287,6 +295,42 @@ MCP_TOOLS = [
             "required": ["task_ids", "merged_name"],
         },
     },
+    {
+        "name": "add_task_dependency",
+        "description": "タスク間の依存関係を追加します。task_idがdepends_on_task_idの完了を待つ関係になります。循環依存は自動検出されエラーになります。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "integer",
+                    "description": "依存元のタスクID（待つ側）",
+                },
+                "depends_on_task_id": {
+                    "type": "integer",
+                    "description": "依存先のタスクID（先に完了すべき側）",
+                },
+            },
+            "required": ["task_id", "depends_on_task_id"],
+        },
+    },
+    {
+        "name": "remove_task_dependency",
+        "description": "タスク間の依存関係を削除します。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "integer",
+                    "description": "依存元のタスクID",
+                },
+                "depends_on_task_id": {
+                    "type": "integer",
+                    "description": "依存先のタスクID",
+                },
+            },
+            "required": ["task_id", "depends_on_task_id"],
+        },
+    },
     # ===== Project Tool (1) =====
     {
         "name": "create_project",
@@ -300,11 +344,11 @@ MCP_TOOLS = [
                 },
                 "description": {
                     "type": "string",
-                    "description": "プロジェクトの説明",
+                    "description": "プロジェクトの詳細説明（Markdown対応）",
                 },
                 "goal": {
                     "type": "string",
-                    "description": "プロジェクトの目標",
+                    "description": "プロジェクトの目標（descriptionのエイリアス）",
                 },
                 "deadline": {
                     "type": "string",
@@ -312,7 +356,7 @@ MCP_TOOLS = [
                     "description": "締め切り",
                 },
             },
-            "required": ["name"],
+            "required": ["name", "description"],
         },
     },
     # ===== Schedule Tools (2) =====
